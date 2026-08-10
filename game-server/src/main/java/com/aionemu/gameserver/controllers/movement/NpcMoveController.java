@@ -26,6 +26,9 @@ import com.aionemu.gameserver.model.actions.NpcActions;
 import com.aionemu.gameserver.model.gameobjects.Creature;
 import com.aionemu.gameserver.model.gameobjects.Npc;
 import com.aionemu.gameserver.model.gameobjects.VisibleObject;
+import com.aionemu.gameserver.geoEngine.pathfinding.PathRequest;
+import com.aionemu.gameserver.geoEngine.pathfinding.PathResult;
+import com.aionemu.gameserver.geoEngine.pathfinding.PathfindingService;
 import com.aionemu.gameserver.model.templates.walker.RouteStep;
 import com.aionemu.gameserver.model.templates.zone.Point2D;
 import com.aionemu.gameserver.network.aion.serverpackets.SM_MOVE;
@@ -44,6 +47,14 @@ public class NpcMoveController extends CreatureMoveController<Npc> {
 	public static final float MOVE_CHECK_OFFSET = 0.1f;
 	private static final float MOVE_OFFSET = 0.05f;
 
+	// pathfinding related
+	private static final float COLLISION_EPSILON = 0.4f;
+	private static final float PATH_GOAL_REACH_DIST = 1.5f;
+	private static final float WAYPOINT_REACH_DIST = 1.0f;
+	private static final long PATH_REQUEST_COOLDOWN = 1500L;
+	private static final long PATH_REFRESH_INTERVAL = 4000L;
+	private static final float PATH_REFRESH_DIST = 5.0f;
+
 	private Destination destination = Destination.TARGET_OBJECT;
 
 	private float pointX;
@@ -57,6 +68,16 @@ public class NpcMoveController extends CreatureMoveController<Npc> {
 	int walkPause;
 
 	private float cachedTargetZ;
+
+	// pathfinding related
+	private PathRequest activePathRequest;
+	private PathResult path;
+	private int pathIndex;
+	private float pathGoalX;
+	private float pathGoalY;
+	private float pathGoalZ;
+	private long pathLastRefresh;
+	private long pathRequestCooldownUntil;
 
 	public NpcMoveController(Npc owner) {
 		super(owner);
@@ -90,6 +111,7 @@ public class NpcMoveController extends CreatureMoveController<Npc> {
 			pointX = x;
 			pointY = y;
 			pointZ = z;
+			clearPath();
 			updateLastMove();
 			MoveTaskManager.getInstance().addCreature(owner);
 		}
@@ -101,6 +123,7 @@ public class NpcMoveController extends CreatureMoveController<Npc> {
 				AI2Logger.moveinfo(owner, "MC: moveToNextPoint started");
 			}
 			destination = Destination.POINT;
+			clearPath();
 			updateLastMove();
 			MoveTaskManager.getInstance().addCreature(owner);
 		}
@@ -141,6 +164,41 @@ public class NpcMoveController extends CreatureMoveController<Npc> {
 			}
 		}
 
+		if (GeoDataConfig.GEO_PATHFINDING_ENABLE && GeoDataConfig.GEO_ENABLE) {
+			try {
+				float goalX;
+				float goalY;
+				float goalZ;
+				if (destination == Destination.TARGET_OBJECT) {
+					VisibleObject target = owner.getTarget();
+					if (target == null) {
+						return;
+					}
+					if (!(target instanceof Creature)) {
+						return;
+					}
+					goalX = target.getX();
+					goalY = target.getY();
+					goalZ = getTargetZ((Npc) owner, (Creature) target);
+				}
+				else {
+					goalX = pointX;
+					goalY = pointY;
+					goalZ = pointZ;
+				}
+				handlePathfinding(goalX, goalY, goalZ);
+				if (path != null) {
+					followPath(goalX, goalY, goalZ);
+					updateLastMove();
+					return;
+				}
+			}
+			catch (Throwable t) {
+				AI2Logger.moveinfo(owner, "pathfinding error, falling back to direct move: " + t);
+				clearPath();
+			}
+		}
+
 		switch (destination) {
 			case TARGET_OBJECT:
 				Npc npc = (Npc) owner;
@@ -164,6 +222,107 @@ public class NpcMoveController extends CreatureMoveController<Npc> {
 				break;
 		}
 		updateLastMove();
+	}
+
+	/**
+	 * Requests, adopts and refreshes a path to the current goal. While no path is active
+	 * the NPC keeps moving straight; per-step collision prevents clipping into walls.
+	 */
+	private void handlePathfinding(float goalX, float goalY, float goalZ) {
+		long now = System.currentTimeMillis();
+		if (activePathRequest != null && activePathRequest.isDone()) {
+			PathResult result = activePathRequest.getResult();
+			activePathRequest = null;
+			if (result != null && result.count > 0) {
+				adoptPath(result, goalX, goalY, goalZ);
+			}
+			else {
+				pathRequestCooldownUntil = now + PATH_REQUEST_COOLDOWN;
+			}
+		}
+		if (path != null) {
+			if (now - pathLastRefresh > PATH_REFRESH_INTERVAL
+				&& MathUtil.getDistance(goalX, goalY, goalZ, pathGoalX, pathGoalY, pathGoalZ) > PATH_REFRESH_DIST) {
+				clearPath();
+			}
+			return;
+		}
+		if (activePathRequest != null) {
+			return;
+		}
+		if (owner.isInFlyingState()) {
+			return;
+		}
+		if (now < pathRequestCooldownUntil) {
+			return;
+		}
+		if (isStraightLineClear(goalX, goalY, goalZ)) {
+			return;
+		}
+		activePathRequest = PathfindingService.getInstance().requestPath(owner, goalX, goalY, goalZ);
+		pathRequestCooldownUntil = now + PATH_REQUEST_COOLDOWN;
+		if (activePathRequest != null && activePathRequest.isDone()) {
+			PathResult result = activePathRequest.getResult();
+			activePathRequest = null;
+			if (result != null && result.count > 0) {
+				adoptPath(result, goalX, goalY, goalZ);
+			}
+		}
+	}
+
+	/**
+	 * Reuses the exact same check as the per-step collision ({@link GeoService#isSolidStep})
+	 * so the LOS decision can never disagree with the movement collision, which would trap
+	 * the NPC in a permanent "blocked -> re-request -> blocked" loop.
+	 */
+	private boolean isStraightLineClear(float tx, float ty, float tz) {
+		return !GeoService.getInstance().isSolidStep(owner, tx, ty);
+	}
+
+	private void adoptPath(PathResult result, float goalX, float goalY, float goalZ) {
+		this.path = result;
+		this.pathIndex = 0;
+		this.pathGoalX = goalX;
+		this.pathGoalY = goalY;
+		this.pathGoalZ = goalZ;
+		this.pathLastRefresh = System.currentTimeMillis();
+	}
+
+	private void clearPath() {
+		this.path = null;
+		this.pathIndex = 0;
+	}
+
+	/**
+	 * Moves the NPC along the current path towards the next waypoint. Clears the path when
+	 * the goal or the final waypoint is reached.
+	 */
+	private void followPath(float goalX, float goalY, float goalZ) {
+		if (path == null) {
+			return;
+		}
+		if (MathUtil.getDistance(owner.getX(), owner.getY(), owner.getZ(), goalX, goalY, goalZ) < PATH_GOAL_REACH_DIST) {
+			clearPath();
+			return;
+		}
+		if (pathIndex >= path.count) {
+			clearPath();
+			return;
+		}
+		float wx = path.xs[pathIndex];
+		float wy = path.ys[pathIndex];
+		float wz = path.zs[pathIndex];
+		if (MathUtil.getDistance(owner.getX(), owner.getY(), owner.getZ(), wx, wy, wz) < WAYPOINT_REACH_DIST) {
+			pathIndex++;
+			if (pathIndex >= path.count) {
+				clearPath();
+				return;
+			}
+			wx = path.xs[pathIndex];
+			wy = path.ys[pathIndex];
+			wz = path.zs[pathIndex];
+		}
+		moveToLocation(wx, wy, wz, 0.1f);
 	}
 
 	/**
@@ -237,6 +396,36 @@ public class NpcMoveController extends CreatureMoveController<Npc> {
 		float newX = (targetDestX - ownerX) * distFraction + ownerX;
 		float newY = (targetDestY - ownerY) * distFraction + ownerY;
 		float newZ = (targetDestZ - ownerZ) * distFraction + ownerZ;
+		if (GeoDataConfig.GEO_NPC_MOVE && GeoDataConfig.GEO_ENABLE && !owner.isInFlyingState()) {
+			float stepDist = (float) MathUtil.getDistance(ownerX, ownerY, newX, newY);
+			if (stepDist > COLLISION_EPSILON && GeoService.getInstance().isSolidStep(owner, newX, newY)) {
+				float bestX = ownerX;
+				float bestY = ownerY;
+				float bestDist = 0f;
+				if (Math.abs(newX - ownerX) > 0.01f && !GeoService.getInstance().isSolidStep(owner, newX, ownerY)) {
+					bestX = newX;
+					bestY = ownerY;
+					bestDist = Math.abs(newX - ownerX);
+				}
+				if (Math.abs(newY - ownerY) > 0.01f && !GeoService.getInstance().isSolidStep(owner, ownerX, newY)) {
+					float slideDist = Math.abs(newY - ownerY);
+					if (slideDist > bestDist) {
+						bestX = ownerX;
+						bestY = newY;
+						bestDist = slideDist;
+					}
+				}
+				if (bestDist > 0.3f) {
+					newX = bestX;
+					newY = bestY;
+					directionChanged = true;
+				}
+				else {
+					clearPath();
+					return;
+				}
+			}
+		}
 		if (GeoDataConfig.GEO_NPC_MOVE && GeoDataConfig.GEO_ENABLE && owner.getAi2().getSubState() != AISubState.WALK_PATH
 			&& owner.getAi2().getState() != AIState.RETURNING
 			&& owner.getGameStats().getLastGeoZUpdate() < System.currentTimeMillis()) {
@@ -279,6 +468,7 @@ public class NpcMoveController extends CreatureMoveController<Npc> {
 		pointX = 0;
 		pointY = 0;
 		pointZ = 0;
+		clearPath();
 	}
 
 	/**
