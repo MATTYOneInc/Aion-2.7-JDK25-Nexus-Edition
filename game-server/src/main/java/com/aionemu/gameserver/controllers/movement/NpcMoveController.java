@@ -518,6 +518,15 @@ public class NpcMoveController extends CreatureMoveController<Npc> {
 	}
 
 	public void chooseNextStep() {
+		// Guard against a null route: some walker-group members enter WALKING / WALK_WAIT_GROUP
+		// through WalkerGroup.setStep without going via startRouteWalking (which sets currentRoute).
+		// Their next step is driven externally by WalkerGroup, so there is nothing to advance here.
+		if (currentRoute == null) {
+			if (owner.getAi2().isLogging()) {
+				AI2Logger.moveinfo(owner, "MC: chooseNextStep skipped, currentRoute is null (group walker)");
+			}
+			return;
+		}
 		int oldPoint = currentPoint;
 		if (currentPoint < (currentRoute.size() - 1)) {
 			currentPoint++;
