@@ -29,6 +29,7 @@ import com.aionemu.gameserver.model.gameobjects.VisibleObject;
 import com.aionemu.gameserver.geoEngine.pathfinding.PathRequest;
 import com.aionemu.gameserver.geoEngine.pathfinding.PathResult;
 import com.aionemu.gameserver.geoEngine.pathfinding.PathfindingService;
+import com.aionemu.gameserver.geoEngine.pathfinding.LocalSteering;
 import com.aionemu.gameserver.model.templates.walker.RouteStep;
 import com.aionemu.gameserver.model.templates.zone.Point2D;
 import com.aionemu.gameserver.network.aion.serverpackets.SM_MOVE;
@@ -78,6 +79,14 @@ public class NpcMoveController extends CreatureMoveController<Npc> {
 	private float pathGoalZ;
 	private long pathLastRefresh;
 	private long pathRequestCooldownUntil;
+
+	// Eleanor (aionsdo) FollowMotor.TARGET_REVALIDATE_TIME = 200: re-check the straight
+	// line to the target frequently so an opened path drops the stale A* route at once.
+	private static final long FOLLOW_REVALIDATE_MS = 200L;
+	private long lastFollowRevalidate;
+
+	// reusable buffer for LocalSteering.selectStep (no per-tick allocation)
+	private final float[] stepBuf = new float[3];
 
 	public NpcMoveController(Npc owner) {
 		super(owner);
@@ -241,6 +250,14 @@ public class NpcMoveController extends CreatureMoveController<Npc> {
 			}
 		}
 		if (path != null) {
+			if (now - lastFollowRevalidate > FOLLOW_REVALIDATE_MS
+				&& destination == Destination.TARGET_OBJECT) {
+				lastFollowRevalidate = now;
+				if (isStraightLineClear(goalX, goalY, goalZ)) {
+					clearPath(); // opened path -> move straight, drop stale A* route
+					return;
+				}
+			}
 			if (now - pathLastRefresh > PATH_REFRESH_INTERVAL
 				&& MathUtil.getDistance(goalX, goalY, goalZ, pathGoalX, pathGoalY, pathGoalZ) > PATH_REFRESH_DIST) {
 				clearPath();
@@ -399,25 +416,13 @@ public class NpcMoveController extends CreatureMoveController<Npc> {
 		if (GeoDataConfig.GEO_NPC_MOVE && GeoDataConfig.GEO_ENABLE && !owner.isInFlyingState()) {
 			float stepDist = (float) MathUtil.getDistance(ownerX, ownerY, newX, newY);
 			if (stepDist > COLLISION_EPSILON && GeoService.getInstance().isSolidStep(owner, newX, newY)) {
-				float bestX = ownerX;
-				float bestY = ownerY;
-				float bestDist = 0f;
-				if (Math.abs(newX - ownerX) > 0.01f && !GeoService.getInstance().isSolidStep(owner, newX, ownerY)) {
-					bestX = newX;
-					bestY = ownerY;
-					bestDist = Math.abs(newX - ownerX);
-				}
-				if (Math.abs(newY - ownerY) > 0.01f && !GeoService.getInstance().isSolidStep(owner, ownerX, newY)) {
-					float slideDist = Math.abs(newY - ownerY);
-					if (slideDist > bestDist) {
-						bestX = ownerX;
-						bestY = newY;
-						bestDist = slideDist;
-					}
-				}
-				if (bestDist > 0.3f) {
-					newX = bestX;
-					newY = bestY;
+				// Eleanor (aionsdo) PathfindHelper.selectStep: pick the passable point
+				// closest to the target among 16 fan-scanned directions instead of only
+				// sliding along the X or Y axis.
+				if (LocalSteering.selectStep(owner, targetX, targetY, targetZ, stepBuf)) {
+					newX = stepBuf[0];
+					newY = stepBuf[1];
+					newZ = stepBuf[2];
 					directionChanged = true;
 				}
 				else {

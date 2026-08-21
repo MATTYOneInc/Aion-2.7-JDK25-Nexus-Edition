@@ -28,6 +28,7 @@ import com.aionemu.gameserver.geoEngine.models.GeoMap;
 import com.aionemu.gameserver.geoEngine.pathfinding.PathfindingService;
 import com.aionemu.gameserver.model.gameobjects.Creature;
 import com.aionemu.gameserver.model.gameobjects.VisibleObject;
+import com.aionemu.gameserver.model.gameobjects.player.Player;
 import com.aionemu.gameserver.utils.MathUtil;
 
 /**
@@ -148,6 +149,31 @@ public class GeoService {
 	
 	public boolean canSee(int worldId, float x, float y, float z, float x1, float y1, float z1, float limit, int instanceId){
 		return geoData.getMap(worldId).canSee(x, y, z, x1, y1, z1, limit, instanceId);
+	}
+
+	/**
+	 * Eleanor (aionsdo) straight-line passability check between two creatures. Used by the
+	 * movement steering to decide whether a mob can move directly towards its target or must
+	 * fan-scan for an alternate step. Heights follow aionsdo: source {@code upper/2} (capped
+	 * 2.2), target {@code max(0.6, upper*0.7)} (1.5 for players).
+	 */
+	public boolean canPass(Creature object, Creature target) {
+		float limit = (float) (MathUtil.getDistance(object, target) - target.getObjectTemplate().getBoundRadius().getCollision());
+		if (limit <= 0)
+			return true;
+		float upperTarget = Math.min(target.getObjectTemplate().getBoundRadius().getUpper() / 2f, 2.2f);
+		float objectUp = object.getObjectTemplate().getBoundRadius().getUpper() / 2f;
+		if (object instanceof Player)
+			objectUp = 1.5f;
+		else if (target instanceof Player)
+			upperTarget = 1.5f;
+		return geoData.getMap(object.getWorldId()).canPass(object.getX(), object.getY(),
+			object.getZ() + objectUp, target.getX(), target.getY(),
+			target.getZ() + upperTarget, limit, object.getInstanceId());
+	}
+
+	public boolean canPass(int worldId, float x, float y, float z, float x1, float y1, float z1, float limit, int instanceId) {
+		return geoData.getMap(worldId).canPass(x, y, z, x1, y1, z1, limit, instanceId);
 	}
 	public GeoMap getMap(int worldId) {
 		return geoData.getMap(worldId);

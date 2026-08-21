@@ -246,6 +246,34 @@ public class GeoMap extends Node {
 		return results.size() > 0;
 	}
 
+	/**
+	 * Eleanor (aionsdo) movement raycast: mesh-only collision probe without the terrain
+	 * sampling loop used by {@link #canSee}. Returns true when no solid mesh blocks the
+	 * segment within {@code limit}. Distances beyond 70m are treated as blocked.
+	 * <p>
+	 * NOTE: upstream aionsdo applies a {@code CollisionIntention.PHYSICAL} filter here. Nexus
+	 * meshes carry no per-mesh collision flags yet, so the filter is omitted — this keeps the
+	 * current "all meshes block" behaviour. Add the filter once per-mesh flags are available.
+	 */
+	public boolean canPass(float x, float y, float z, float targetX, float targetY, float targetZ, float limit,
+		int instanceId) {
+		float x2 = x - targetX;
+		float y2 = y - targetY;
+		float distance = (float) Math.sqrt(x2 * x2 + y2 * y2);
+		if (distance > 70f) {
+			return false;
+		}
+		Vector3f pos = new Vector3f(x, y, z);
+		Vector3f dir = new Vector3f(targetX, targetY, targetZ);
+		dir.subtractLocal(pos).normalizeLocal();
+		Ray r = new Ray(pos, dir);
+		r.setLimit(limit);
+		CollisionResults results = new CollisionResults();
+		results.setOnlyFirst(true);
+		collideWith(r, results, instanceId);
+		return results.size() == 0;
+	}
+
 	private Vector3f calculateTerrainCollision(float x, float y, float z, float targetX, float targetY, float targetZ,
 		Ray ray) {
 
