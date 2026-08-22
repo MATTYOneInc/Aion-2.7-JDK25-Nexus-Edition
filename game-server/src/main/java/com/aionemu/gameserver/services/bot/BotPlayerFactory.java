@@ -30,6 +30,7 @@ import com.aionemu.gameserver.model.items.storage.StorageType;
 import com.aionemu.gameserver.utils.idfactory.IDFactory;
 import com.aionemu.gameserver.network.aion.BotConnection;
 import com.aionemu.gameserver.services.AccountService;
+import com.aionemu.gameserver.services.SkillLearnService;
 import com.aionemu.gameserver.services.player.PlayerService;
 import com.aionemu.gameserver.utils.Util;
 
@@ -147,6 +148,14 @@ public class BotPlayerFactory {
 				// friend list not loaded yet - ignore
 			}
 
+			// grant every skill the bot's saved level is eligible for (saved characters only
+			// keep the skills they had; addMissingSkills backfills any missing ones)
+			try {
+				SkillLearnService.addMissingSkills(player);
+			} catch (Exception e) {
+				// best-effort
+			}
+
 			BotConnection conn = new BotConnection();
 			conn.setAccount(account);
 			conn.setActivePlayer(player);
@@ -210,6 +219,13 @@ public class BotPlayerFactory {
 			player.setClientConnection(conn);
 		} catch (Exception e) {
 			log.error("Failed to attach bot connection for " + name + ": " + e.getMessage(), e);
+		}
+
+		// backfill any class/level skills the starter kit may have missed
+		try {
+			SkillLearnService.addMissingSkills(player);
+		} catch (Exception e) {
+			// best-effort
 		}
 
 		return player;

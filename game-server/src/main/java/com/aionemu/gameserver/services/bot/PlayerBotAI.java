@@ -17,18 +17,30 @@ import com.aionemu.gameserver.questEngine.model.QuestState;
 import com.aionemu.gameserver.questEngine.model.QuestStatus;
 import com.aionemu.gameserver.restrictions.RestrictionsManager;
 import com.aionemu.gameserver.services.QuestService;
+import com.aionemu.gameserver.services.SkillLearnService;
 import com.aionemu.gameserver.services.drop.DropService;
 import com.aionemu.gameserver.configs.main.BotsConfig;
 import com.aionemu.gameserver.controllers.movement.MovementMask;
-import com.aionemu.gameserver.controllers.movement.PlayerMoveController;
-import com.aionemu.gameserver.network.aion.serverpackets.SM_MOVE;
+import com.aionemu.gameserver.network.aion.AionClientPacket;
+import com.aionemu.gameserver.network.aion.AionConnection.State;
+import com.aionemu.gameserver.network.aion.BotConnection;
+import com.aionemu.gameserver.network.aion.clientpackets.CM_ATTACK;
+import com.aionemu.gameserver.network.aion.clientpackets.CM_CASTSPELL;
+import com.aionemu.gameserver.network.aion.clientpackets.CM_MOVE;
 import com.aionemu.gameserver.services.teleport.TeleportService;
+import com.aionemu.gameserver.model.gameobjects.Item;
 import com.aionemu.gameserver.model.skill.PlayerSkillEntry;
+import com.aionemu.gameserver.model.items.ItemSlot;
+import com.aionemu.gameserver.model.templates.item.EquipType;
 import com.aionemu.gameserver.skillengine.model.SkillTemplate;
 import com.aionemu.gameserver.utils.MathUtil;
 import com.aionemu.gameserver.utils.PacketSendUtility;
 import com.aionemu.gameserver.world.MapRegion;
-import com.aionemu.gameserver.world.World;
+import com.aionemu.gameserver.configs.main.GeoDataConfig;
+import com.aionemu.gameserver.world.geo.GeoService;
+
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Finite-state-machine driver for a single bot player. Driven externally by a
@@ -52,6 +64,8 @@ public class PlayerBotAI {
 	private final Player player;
 	private BotState state = BotState.IDLE;
 	private Npc target;
+	private int lastLevel;
+	private boolean moving = false;
 	private final int spawnMap;
 	private final float spawnX, spawnY, spawnZ;
 	private float wanderX, wanderY, wanderZ;
@@ -64,6 +78,9 @@ public class PlayerBotAI {
 		this.spawnX = player.getX();
 		this.spawnY = player.getY();
 		this.spawnZ = player.getZ();
+		this.lastLevel = player.getLevel();
+		// make sure a freshly created/spawned bot already owns every skill its level grants
+		onLevelChanged();
 		// each bot roams around its own (distributed) home with a slightly randomized speed,
 		// so they don't all move in lockstep or cluster on the same point
 		this.wanderRadius = BotsConfig.BOTS_WANDER_RADIUS;
@@ -78,6 +95,12 @@ public class PlayerBotAI {
 		if (player.getLifeStats().isAlreadyDead()) {
 			onDeath();
 			return;
+		}
+
+		// learn new skills / re-equip gear whenever the bot levels up
+		if (player.getLevel() != lastLevel) {
+			onLevelChanged();
+			lastLevel = player.getLevel();
 		}
 
 		switch (state) {
@@ -137,14 +160,14 @@ public class PlayerBotAI {
 					state = BotState.MOVING;
 					break;
 				}
-				sendStopMove();
-				player.setTarget(target);
-				// occasionally cast a real skill so other players see the casting animation
-				// (SM_CASTSPELL is broadcast by the skill engine to everyone nearby)
-				if (Math.random() < BotsConfig.BOTS_SKILL_CHANCE && tryCastSkill(target))
-					break;
-				player.getController().attackTarget(target, 0);
+			sendStopMove();
+			player.setTarget(target);
+			// occasionally cast a real skill so other players see the casting animation
+			// (SM_CASTSPELL is broadcast by the skill engine to everyone nearby)
+			if (Math.random() < BotsConfig.BOTS_SKILL_CHANCE && tryCastSkill(target))
 				break;
+			dispatchAttack(target);
+			break;
 			case LOOT:
 				if (target != null && !target.getLifeStats().isAlreadyDead()) {
 					state = BotState.COMBAT;
@@ -196,7 +219,16 @@ public class PlayerBotAI {
 			if (st == null || st.isPassive())
 				continue;
 			try {
-				player.getController().useSkill(skillId, 0, 0, 0, 0, 0);
+				CM_CASTSPELL cs = new CM_CASTSPELL(0, State.IN_GAME);
+				setField(cs, "spellid", skillId);
+				setField(cs, "level", 1);
+				setField(cs, "targetType", 0); // 0 = target by object id
+				setField(cs, "targetObjectId", target.getObjectId());
+				setField(cs, "x", target.getX());
+				setField(cs, "y", target.getY());
+				setField(cs, "z", target.getZ());
+				setField(cs, "hitTime", 0);
+				dispatch(cs);
 			} catch (Exception e) {
 				continue;
 			}
@@ -211,46 +243,101 @@ public class PlayerBotAI {
 	}
 
 	/**
-	 * Moves the bot toward a world point, advancing the authoritative position and broadcasting a
-	 * proper {@link SM_MOVE} (with STARTMOVE + direction vector) so other players see the bot actually
-	 * running rather than teleporting. Mirrors what the connection's CM_MOVE handling does for a real client.
+	 * Starts / continues moving the bot toward a world point by dispatching a real
+	 * {@link CM_MOVE} (STARTMOVE, keyboard-style) packet — exactly what a human client sends.
+	 * The server's {@code CM_MOVE} handler drives the standard movement pipeline
+	 * ({@code PlayerMoveTaskManager} + {@code SM_MOVE} prediction); we don't touch the move
+	 * controller directly. {@code x,y,z} in the packet are the bot's CURRENT position and
+	 * {@code x2,y2,z2} the destination, as the real packet layout requires.
 	 */
 	private void moveToPoint(float tx, float ty, float tz) {
 		float x = player.getX(), y = player.getY(), z = player.getZ();
 		double dist = MathUtil.getDistance(x, y, z, tx, ty, tz);
 		if (dist <= 0.5f) {
-			sendStopMove();
+			sendMoveStop();
 			return;
 		}
-		float step = (float) Math.min(dist, wanderStep);
-		float nx = (float) (x + (tx - x) / dist * step);
-		float ny = (float) (y + (ty - y) / dist * step);
-		float nz = (float) (z + (tz - z) / dist * step);
+		// keep the bot on the terrain. Use the 4-arg getZ with the CURRENT (already grounded) Z as
+		// the reference so the ray is cast downward from just above the bot and finds the ground at the
+		// destination — this handles slopes and avoids landing on a canopy (the 2-arg getZ returns the
+		// top surface and would float the bot in the air).
+		tz = GeoService.getInstance().getZ(player.getWorldId(), tx, ty, player.getZ(), 0f,
+			player.getInstanceId());
+		if (!GeoDataConfig.GEO_ENABLE)
+			tz = player.getZ();
 
-		// Never step into a coordinate that has no loaded map region: World.updatePosition()
-		// would otherwise "rescue" the player to its bind point, clumping every bot onto one spot
-		// and making them invisible. Validate both the destination and the intermediate step.
-		if (!isRegionValid(tx, ty, tz) || !isRegionValid(nx, ny, nz)) {
+		// Never move into a coordinate that has no loaded map region: World.updatePosition() would
+		// otherwise "rescue" the player to its bind point, clumping every bot onto one spot.
+		if (!isRegionValid(tx, ty, tz)) {
+			sendMoveStop();
 			return;
 		}
 
 		byte heading = (byte) (MathUtil.calculateAngleFrom(x, y, tx, ty) / 3);
-
-		PlayerMoveController mc = player.getMoveController();
-		mc.movementMask = MovementMask.STARTMOVE;
-		mc.setNewDirection(tx, ty, tz, heading);
-		mc.vectorX = tx - nx;
-		mc.vectorY = ty - ny;
-		mc.vectorZ = tz - nz;
-
-		World.getInstance().updatePosition(player, nx, ny, nz, heading, true);
-		PacketSendUtility.broadcastPacket(player, new SM_MOVE(player));
+		// vector is the per-packet movement direction*magnitude (small, like a real client),
+		// NOT the full distance to the destination — otherwise speedhack detection would trip.
+		float dx = tx - x, dy = ty - y, dz = tz - z;
+		float len = (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
+		float vlen = Math.min(len, 3f);
+		if (len > 0.0001f) {
+			dx /= len;
+			dy /= len;
+			dz /= len;
+		}
+		CM_MOVE mv = new CM_MOVE(0, State.IN_GAME);
+		setField(mv, "type", MovementMask.STARTMOVE);
+		setField(mv, "x", x);
+		setField(mv, "y", y);
+		setField(mv, "z", z);
+		setField(mv, "heading", heading);
+		setField(mv, "vectorX", dx * vlen);
+		setField(mv, "vectorY", dy * vlen);
+		setField(mv, "vectorZ", dz * vlen);
+		setField(mv, "x2", tx);
+		setField(mv, "y2", ty);
+		setField(mv, "z2", tz);
+		dispatch(mv);
+		moving = true;
+		// refresh the known list so the bot discovers mobs/quest-givers as it advances
+		player.updateKnownlist();
 	}
 
 	private void sendStopMove() {
-		PlayerMoveController mc = player.getMoveController();
-		mc.movementMask = 0;
-		PacketSendUtility.broadcastPacket(player, new SM_MOVE(player));
+		sendMoveStop();
+	}
+
+	/** Sends a {@link CM_MOVE} stop packet so the server halts the bot via the normal pipeline. */
+	private void sendMoveStop() {
+		CM_MOVE mv = new CM_MOVE(0, State.IN_GAME);
+		setField(mv, "type", (byte) 0);
+		setField(mv, "x", player.getX());
+		setField(mv, "y", player.getY());
+		setField(mv, "z", player.getZ());
+		setField(mv, "heading", (byte) 0);
+		dispatch(mv);
+		moving = false;
+	}
+
+	/** Dispatches a client packet through this bot's virtual connection (runs the real handler). */
+	private void dispatch(AionClientPacket packet) {
+		((BotConnection) player.getClientConnection()).dispatch(packet);
+	}
+
+	/** Populates a packet field by name (mirrors wire decoding without the network layer). */
+	private static void setField(AionClientPacket packet, String name, Object value) {
+		BotConnection.setPacketField(packet, name, value);
+	}
+
+	/** Attacks a creature by dispatching a real {@link CM_ATTACK} packet (same path as a human client). */
+	private void dispatchAttack(Npc target) {
+		try {
+			CM_ATTACK at = new CM_ATTACK(0, State.IN_GAME);
+			setField(at, "targetObjectId", target.getObjectId());
+			setField(at, "time", 0);
+			dispatch(at);
+		} catch (Exception e) {
+			log.debug("Bot attack dispatch failed: " + e.getMessage());
+		}
 	}
 
 	private void startWander() {
@@ -267,7 +354,10 @@ public class PlayerBotAI {
 			if (isRegionValid(wx, wy, spawnZ)) {
 				wanderX = wx;
 				wanderY = wy;
-				wanderZ = spawnZ;
+				wanderZ = GeoService.getInstance().getZ(player.getWorldId(), wx, wy, spawnZ, 0f,
+					player.getInstanceId());
+				if (!GeoDataConfig.GEO_ENABLE)
+					wanderZ = spawnZ;
 				return;
 			}
 		}
@@ -388,7 +478,63 @@ public class PlayerBotAI {
 		} catch (Exception e) {
 			log.debug("Bot respawn failed: " + e.getMessage());
 		}
+		// the death/teleport may have left the move pipeline active; make sure we're stopped.
+		// CM_MOVE stop is ignored while dead, so stop the task manager directly as cleanup.
+		try {
+			player.getController().onStopMove();
+		} catch (Exception ignore) {
+		}
+		moving = false;
 		target = null;
 		state = BotState.IDLE;
+	}
+
+	/**
+	 * Called once at spawn and on every level change. Grants all skills the bot is
+	 * eligible for at its current level (mirrors what {@code //givemissingskills} does for a
+	 * real player) and then equips any better gear sitting in the inventory so the bot
+	 * actually uses the loot/exp it earns.
+	 */
+	private void onLevelChanged() {
+		try {
+			SkillLearnService.addMissingSkills(player);
+		} catch (Exception e) {
+			log.debug("Bot skill learn failed: " + e.getMessage());
+		}
+		autoEquip();
+	}
+
+	/**
+	 * Equips equippable weapons/armor found in the inventory into currently empty equipment
+	 * slots. Conservative on purpose: it only fills free slots, so it never unequips an
+	 * already-worn (and possibly better) piece. Called on spawn and after each level-up.
+	 */
+	private void autoEquip() {
+		try {
+			Set<Integer> occupied = new HashSet<Integer>();
+			for (Item equipped : player.getEquipment().getEquippedItems())
+				occupied.add(equipped.getEquipmentSlot());
+
+			for (Item item : player.getInventory().getItems()) {
+				if (item == null || item.isEquipped())
+					continue;
+				EquipType equipType = item.getItemTemplate().getEquipmentType();
+				if (equipType != EquipType.ARMOR && equipType != EquipType.WEAPON)
+					continue;
+				ItemSlot[] slots = ItemSlot.getSlotsFor(item.getItemTemplate().getItemSlot());
+				// only handle items that map cleanly to a single slot
+				if (slots == null || slots.length != 1)
+					continue;
+				int slotId = slots[0].getSlotIdMask();
+				if (occupied.contains(slotId))
+					continue;
+				if (item.getItemTemplate().getLevel() > player.getLevel())
+					continue;
+				player.getEquipment().equipItem(item.getObjectId(), slotId);
+				occupied.add(slotId);
+			}
+		} catch (Exception e) {
+			log.debug("Bot auto-equip failed: " + e.getMessage());
+		}
 	}
 }

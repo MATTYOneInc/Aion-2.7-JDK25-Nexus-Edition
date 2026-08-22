@@ -17,6 +17,8 @@ import com.aionemu.gameserver.model.gameobjects.player.Player;
 import com.aionemu.gameserver.utils.ThreadPoolManager;
 import com.aionemu.gameserver.utils.Util;
 import com.aionemu.gameserver.world.World;
+import com.aionemu.gameserver.configs.main.GeoDataConfig;
+import com.aionemu.gameserver.world.geo.GeoService;
 import com.aionemu.gameserver.world.knownlist.KnownList;
 
 /**
@@ -85,8 +87,21 @@ public class BotManager {
 			// distribute this bot's "home" across the starting location using an even spiral
 			// anchored to the (correct-ground) spawn point, biased toward walkable zone polygons
 			int mapId = player.getWorldId();
+			// keep homes close to the (correct-ground) spawn point: the 4-arg getZ we use can only find
+			// terrain at or below the spawn height, so large spreads that climb hills would sink bots
+			// underground. A tight radius on the open starting pad keeps everyone grounded.
+			float spread = Math.min(Math.max(BotsConfig.BOTS_SPREAD_RADIUS, 35), 50);
 			float[] home = ZoneHomePicker.pickHome(mapId, player.getX(), player.getY(), player.getZ(), myIndex,
-				Math.max(BotsConfig.BOTS_SPREAD_RADIUS, 60));
+				spread);
+			// snap the home height to the terrain. Use the 4-arg getZ with the (correct, grounded)
+			// spawn Z as the reference: it casts a ray DOWN from there, so it finds the ground below
+			// the bot rather than a tree canopy / roof (the 2-arg getZ returns the TOP surface and
+			// would drop the bot in the air). This only works while the home stays near the spawn
+			// height, so keep the spread radius small (see ZoneHomePicker call below).
+			home[2] = GeoService.getInstance().getZ(mapId, home[0], home[1], player.getZ(), 0f,
+				player.getInstanceId());
+			if (!GeoDataConfig.GEO_ENABLE)
+				home[2] = player.getZ();
 			World.getInstance().setPosition(player, mapId, home[0], home[1], home[2], (byte) 0);
 
 			player.setKnownlist(new KnownList(player));
