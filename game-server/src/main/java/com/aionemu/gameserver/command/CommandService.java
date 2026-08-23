@@ -16,6 +16,7 @@ import com.aionemu.gameserver.configs.main.LoggingConfig;
 import com.aionemu.gameserver.command.admin.*;
 import com.aionemu.gameserver.command.admin.CmdTvt2;
 import com.aionemu.gameserver.command.player.*;
+import com.aionemu.gameserver.command.CmdRankedBg;
 import com.aionemu.gameserver.model.gameobjects.player.Player;
 import com.aionemu.gameserver.utils.PacketSendUtility;
 import com.aionemu.gameserver.utils.audit.AuditLogger;
@@ -174,6 +175,7 @@ public class CommandService {
 		commands.put("toll", new CmdToll());
 //		commands.put("Tvt2", new CmdTvt2());
 		commands.put("find", new CmdFind());
+		commands.put("rankedbg", new CmdRankedBg());
 		
 		//EventEngine
 		

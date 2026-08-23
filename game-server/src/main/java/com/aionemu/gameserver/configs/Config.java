@@ -95,6 +95,9 @@ public class Config {
 			ConfigurableProcessor.process(DredgionConfig.class, mainProps);
 			log.info("Loading: " + main + "/dredgion.properties");
 
+			ConfigurableProcessor.process(RankedBgConfig.class, mainProps);
+			log.info("Loading: " + main + "/rankedbg.properties");
+
 			ConfigurableProcessor.process(DropConfig.class, mainProps);
 			log.info("Loading: " + main + "/drop.properties");
 

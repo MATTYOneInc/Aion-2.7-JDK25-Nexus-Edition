@@ -36,6 +36,7 @@ import com.aionemu.gameserver.configs.custom.WebShopConf;
 import com.aionemu.gameserver.configs.main.AIConfig;
 import com.aionemu.gameserver.configs.main.CustomConfig;
 import com.aionemu.gameserver.configs.main.DredgionConfig;
+import com.aionemu.gameserver.configs.main.RankedBgConfig;
 import com.aionemu.gameserver.configs.main.EventsConfig;
 import com.aionemu.gameserver.configs.main.GSConfig;
 import com.aionemu.gameserver.configs.main.SiegeConfig;
@@ -74,6 +75,7 @@ import com.aionemu.gameserver.services.WeddingService;
 import com.aionemu.gameserver.services.abyss.AbyssRankUpdateService;
 import com.aionemu.gameserver.services.drop.DropRegistrationService;
 import com.aionemu.gameserver.services.instance.DredgionService2;
+import com.aionemu.gameserver.services.rankedbg.RankedBattlegroundService;
 import com.aionemu.gameserver.services.instance.InstanceService;
 import com.aionemu.gameserver.services.player.PlayerEventService;
 import com.aionemu.gameserver.services.player.PlayerLimitService;
@@ -365,6 +367,11 @@ private static void printHeader() {
 		if (DredgionConfig.DREDGION2_ENABLE) {
 			Util.printSection("Dredgion");
 			DredgionService2.getInstance().start();
+		}
+
+		if (RankedBgConfig.RANKED_BG_ENABLE) {
+			Util.printSection("RankedBattleground");
+			RankedBattlegroundService.getInstance().start();
 		}
 
 		if (CustomConfig.ENABLE_REWARD_SERVICE) {

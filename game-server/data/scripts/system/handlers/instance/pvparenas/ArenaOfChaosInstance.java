@@ -31,8 +31,12 @@ import com.aionemu.gameserver.utils.PacketSendUtility;
 /**
  *
  * @author xTz
+ *
+ * NOTE: map 300350000 (Arena of Chaos) is repurposed for the ranked battleground system
+ * (see RankedBgInstance). The @InstanceID binding is disabled so RankedBgInstance is the
+ * sole handler for this map.
  */
-@InstanceID(300350000)
+//@InstanceID(300350000)
 public class ArenaOfChaosInstance extends ChaosTrainingGroundsInstance {
 
 	@Override

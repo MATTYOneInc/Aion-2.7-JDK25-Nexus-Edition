@@ -11,28 +11,42 @@ import org.slf4j.LoggerFactory;
 import com.aionemu.commons.network.AConnection;
 
 /**
- * Headless no-op connection used by AI-controlled bot players.
- *
- * <p>
- * It satisfies {@code Player.getClientConnection() != null} (so {@code isOnline() == true} and
- * account lookups such as {@code getAccount().getMembership()} work), but is fully write-disabled:
- * every outgoing packet is dropped instead of touching the real network. This avoids NPEs inside
- * {@link AionConnection}'s network plumbing (which expects a live, registered SelectionKey /
- * Dispatcher) without spinning up a real socket pump.
- * </p>
- *
- * <p>
- * The connection is marked write-disabled by reflecting the private {@code closed} field of
- * {@link AConnection} to {@code true}. With {@code isWriteDisabled() == true}, {@code sendPacket()}
- * short-circuits before reaching {@code enableWriteInterest()} (which needs a live key), and
- * {@code close()} also short-circuits before dereferencing the (absent) Dispatcher.
- * </p>
+ * Headless, write-disabled connection that also acts as a <em>virtual client</em>: bot AI code
+ * dispatches real {@link AionClientPacket}s (CM_MOVE / CM_ATTACK / CM_CASTSPELL / ...) through
+ * {@link #dispatch(AionClientPacket)}, which runs them through the exact same handler pipeline a
+ * real human client would trigger. This makes the server treat the bot 100% like a player — no
+ * fragile direct calls into {@code PlayerController}/{@code MoveController}.
  */
 public class BotConnection extends AionConnection {
 
 	public BotConnection() throws IOException {
 		super(createLoopbackChannel(), null);
 		setWriteDisabled();
+		// The bot is "in game" so client-packet state validation (CM_ATTACK/CM_MOVE require IN_GAME) passes.
+		setState(State.IN_GAME);
+	}
+
+	/**
+	 * Runs a client packet exactly as the network reader would: binds it to this connection and
+	 * executes {@code run()} (state validation + {@code runImpl()}). The packet's fields must already
+	 * be populated (via {@link #setPacketField(AionClientPacket, String, Object)} or a read buffer)
+	 * because we skip the wire decoding — the bot produces the same logical data a real client would.
+	 */
+	public void dispatch(AionClientPacket packet) {
+		packet.setConnection(this);
+		packet.run();
+	}
+
+	/** Sets a (possibly private) field on a client packet — used to populate packet data without wire encoding. */
+	public static void setPacketField(AionClientPacket packet, String name, Object value) {
+		try {
+			Field f = packet.getClass().getDeclaredField(name);
+			f.setAccessible(true);
+			f.set(packet, value);
+		} catch (Exception e) {
+			LoggerFactory.getLogger(BotConnection.class)
+				.warn("BotConnection.setPacketField failed for " + name + ": " + e.getMessage());
+		}
 	}
 
 	private static SocketChannel createLoopbackChannel() throws IOException {
