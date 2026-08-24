@@ -5,7 +5,7 @@ TITLE Aion Emu - Game Server
 
 :START
 CLS
-JAVA -Xms1024m -Xmx2560m -javaagent:libs/game-server-1.0.0-SNAPSHOT.jar -XX:+UseNUMA -XX:+UseCompactObjectHeaders -DconsoleEncoding=CP850 -cp "libs/*" com.aionemu.gameserver.GameServer
+JAVA -Xms1024m -Xmx2560m -javaagent:libs/game-server-1.0.0-SNAPSHOT.jar -XX:+UseNUMA -XX:+UseCompactObjectHeaders -DconsoleEncoding=CP850 --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/sun.reflect.generics.reflectiveObjects=ALL-UNNAMED -cp "libs/*" com.aionemu.gameserver.GameServer
 IF %ERRORLEVEL% EQU 0 GOTO END
 IF %ERRORLEVEL% EQU 2 GOTO START
 ECHO.

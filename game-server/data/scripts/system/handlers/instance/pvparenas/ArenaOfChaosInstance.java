@@ -16,10 +16,8 @@
  */
 package instance.pvparenas;
 
+import java.util.Comparator;
 import java.util.List;
-
-import static ch.lambdaj.Lambda.on;
-import static ch.lambdaj.Lambda.sort;
 
 import com.aionemu.gameserver.instance.handlers.InstanceID;
 import com.aionemu.gameserver.model.gameobjects.Item;
@@ -158,7 +156,7 @@ public class ArenaOfChaosInstance extends ChaosTrainingGroundsInstance {
 		for(Player p : instance.getPlayersInside()){
 			PacketSendUtility.sendMessage(p, "CAN START "+p.getName());
 			List<Item> items = p.getInventory().getItemsByItemId(itemId);
-			items = sort(items, on(Item.class).getExpireTime());
+			items.sort(Comparator.comparingInt(Item::getExpireTime));
 			for (Item item : items) {
 				ticketRemoved.put(p.getObjectId(), 1);
 				p.getInventory().decreaseItemCount(item, 1);

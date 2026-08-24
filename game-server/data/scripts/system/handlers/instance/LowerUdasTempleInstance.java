@@ -60,6 +60,7 @@ public class LowerUdasTempleInstance extends GeneralInstanceHandler {
 	}
 	@Override
 	public void onDie(Npc npc) {
+		super.onDie(npc);
 		switch(npc.getObjectTemplate().getTemplateId()) {
 			case 215795: //Debilkarim
 				openDoor(111);

@@ -140,6 +140,9 @@ public class Config {
 			ConfigurableProcessor.process(RankingConfig.class, mainProps);
 			log.info("Loading: " + main + "/ranking.properties");
 
+			ConfigurableProcessor.process(InstanceClearConfig.class, mainProps);
+			log.info("Loading: " + main + "/instanceclear.properties");
+
 			ConfigurableProcessor.process(RateConfig.class, mainProps);
 			log.info("Loading: " + main + "/rates.properties");
 

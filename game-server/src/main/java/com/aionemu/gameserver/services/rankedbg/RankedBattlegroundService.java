@@ -18,10 +18,12 @@ import org.slf4j.LoggerFactory;
 
 import com.aionemu.commons.database.dao.DAOManager;
 import com.aionemu.gameserver.configs.main.RankedBgConfig;
+import com.aionemu.gameserver.dao.RankedBgClassRatingDAO;
 import com.aionemu.gameserver.dao.RankedBgRatingDAO;
 import com.aionemu.gameserver.instance.InstanceEngine;
 import com.aionemu.gameserver.model.Race;
 import com.aionemu.gameserver.model.gameobjects.player.Player;
+import com.aionemu.gameserver.model.rankedbg.RankedBgClassRating;
 import com.aionemu.gameserver.model.rankedbg.RankedBgRating;
 import com.aionemu.gameserver.model.team2.group.PlayerGroup;
 import com.aionemu.gameserver.services.instance.InstanceService;
@@ -46,6 +48,8 @@ public class RankedBattlegroundService {
 	private final Map<Integer, RankedBgMatch> matches = new FastMap<Integer, RankedBgMatch>().shared();
 	private final Map<Integer, RankedBgQueue> queues = new FastMap<Integer, RankedBgQueue>().shared();
 	private final Map<Integer, Integer> playerFormat = new FastMap<Integer, Integer>().shared();
+	private final RankedBgClassQueue classQueue = new RankedBgClassQueue();
+	private final Map<Integer, Integer> playerClassFormat = new FastMap<Integer, Integer>().shared();
 
 	private RankedBattlegroundService() {
 	}
@@ -129,18 +133,41 @@ public class RankedBattlegroundService {
 
 	public void unregister(Player player) {
 		Integer fmt = playerFormat.remove(player.getObjectId());
-		if (fmt == null) {
-			return;
-		}
-		RankedBgQueue queue = queues.get(fmt);
-		if (queue != null) {
-			List<Player> removed = queue.removeUnitContaining(player);
-			if (removed != null) {
-				for (Player p : removed) {
-					playerFormat.remove(p.getObjectId());
+		if (fmt != null) {
+			RankedBgQueue queue = queues.get(fmt);
+			if (queue != null) {
+				List<Player> removed = queue.removeUnitContaining(player);
+				if (removed != null) {
+					for (Player p : removed) {
+						playerFormat.remove(p.getObjectId());
+					}
 				}
 			}
 		}
+		if (playerClassFormat.remove(player.getObjectId()) != null) {
+			classQueue.remove(player);
+		}
+	}
+
+	/**
+	 * Queue a solo player for the "class duel" mode (1v1, same class only). Parties are
+	 * not allowed — the caller must be a solo player so the match can be paired by class.
+	 */
+	public RegisterResult registerClass(Player player) {
+		if (!RankedBgConfig.RANKED_BG_ENABLE) {
+			return RegisterResult.DISABLED;
+		}
+		if (player.getPlayerGroup2() != null) {
+			return RegisterResult.WRONG_GROUP_SIZE;
+		}
+		if (playerClassFormat.containsKey(player.getObjectId())) {
+			unregister(player);
+		}
+		if (classQueue.add(player)) {
+			playerClassFormat.put(player.getObjectId(), 1);
+			return RegisterResult.OK;
+		}
+		return RegisterResult.ALREADY_QUEUED;
 	}
 
 	private RankedBgQueue getQueue(int format) {
@@ -163,6 +190,18 @@ public class RankedBattlegroundService {
 				match = queue.tryBuild(RankedBgConfig.RANKED_BG_MAP_ID);
 			}
 		}
+		matchmakeClass();
+	}
+
+	private void matchmakeClass() {
+		if (!RankedBgConfig.RANKED_BG_ENABLE) {
+			return;
+		}
+		RankedBgMatch match = classQueue.tryBuild(RankedBgConfig.RANKED_BG_MAP_ID);
+		while (match != null) {
+			startMatch(match);
+			match = classQueue.tryBuild(RankedBgConfig.RANKED_BG_MAP_ID);
+		}
 	}
 
 	private void startMatch(RankedBgMatch match) {
@@ -174,7 +213,7 @@ public class RankedBattlegroundService {
 		SpawnEngine.spawnInstance(RankedBgConfig.RANKED_BG_MAP_ID, nextInstanceId);
 
 		RankedBgMatch realMatch = new RankedBgMatch(nextInstanceId, RankedBgConfig.RANKED_BG_MAP_ID, match.getFormat(),
-			match.getTeamA(), match.getTeamB());
+			match.getTeamA(), match.getTeamB(), match.isClassDuel());
 		matches.put(nextInstanceId, realMatch);
 
 		removeFromQueues(realMatch);
@@ -189,9 +228,11 @@ public class RankedBattlegroundService {
 	private void removeFromQueues(RankedBgMatch match) {
 		for (Player p : match.getTeamA()) {
 			playerFormat.remove(p.getObjectId());
+			playerClassFormat.remove(p.getObjectId());
 		}
 		for (Player p : match.getTeamB()) {
 			playerFormat.remove(p.getObjectId());
+			playerClassFormat.remove(p.getObjectId());
 		}
 	}
 
@@ -237,6 +278,26 @@ public class RankedBattlegroundService {
 		RankedBgRating rating = DAOManager.getDAO(RankedBgRatingDAO.class).load(playerId, format);
 		if (rating == null) {
 			rating = new RankedBgRating(playerId, format);
+			rating.setRating(RankedBgConfig.DEFAULT_RATING);
+		}
+		return rating;
+	}
+
+	/* Class-duel rating persistence helpers */
+
+	public int loadClassRating(int playerId) {
+		RankedBgClassRating rating = DAOManager.getDAO(RankedBgClassRatingDAO.class).load(playerId);
+		return rating == null ? RankedBgConfig.DEFAULT_RATING : rating.getRating();
+	}
+
+	public void saveClassRating(RankedBgClassRating rating) {
+		DAOManager.getDAO(RankedBgClassRatingDAO.class).store(rating);
+	}
+
+	public RankedBgClassRating loadOrCreateClass(int playerId) {
+		RankedBgClassRating rating = DAOManager.getDAO(RankedBgClassRatingDAO.class).load(playerId);
+		if (rating == null) {
+			rating = new RankedBgClassRating(playerId);
 			rating.setRating(RankedBgConfig.DEFAULT_RATING);
 		}
 		return rating;

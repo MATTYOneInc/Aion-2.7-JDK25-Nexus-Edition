@@ -454,12 +454,12 @@ public class AutoGroupService2 {
 					}
 					if (player != null && !lfp.isInvited(instanceMaskId) && autoInstance.hasRacePermit(player.getRace()) &&
 							!lfp.isOnStartEnterTask()) {
-						if (autoInstance.canAddPlayer(player) && autoInstance.hasSizePermit()) {
+						if (autoInstance.canAddPlayer(player) && autoInstance.isReadyToStart()) {
 							break;
 						}
 					}
 				}
-				if (autoInstance.hasSizePermit()) {
+				if (autoInstance.isReadyToStart()) {
 					WorldMapInstance instance = createInstance(agt.getInstanceMapId());
 					autoInstance.setWorldMapInstance(instance);
 					playersInInstances.put(instance.getInstanceId(), autoInstance);

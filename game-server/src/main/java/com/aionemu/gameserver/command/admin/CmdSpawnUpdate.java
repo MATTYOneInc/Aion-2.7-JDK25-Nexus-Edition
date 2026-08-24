@@ -1,13 +1,7 @@
 package com.aionemu.gameserver.command.admin;
 
-import static ch.lambdaj.Lambda.extractIterator;
-import static ch.lambdaj.Lambda.filter;
-import static ch.lambdaj.Lambda.flatten;
-import static ch.lambdaj.Lambda.having;
-import static ch.lambdaj.Lambda.on;
-import static org.hamcrest.Matchers.equalTo;
-
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 import com.aionemu.gameserver.command.BaseCommand;
@@ -232,8 +226,16 @@ public class CmdSpawnUpdate extends BaseCommand {
 						return;
 					}
 					List<SpawnGroup2> allSpawns = DataManager.SPAWNS_DATA2.getSpawnsByWorldId(npc.getWorldId());
-					List<SpawnTemplate> allSpots = flatten(extractIterator(allSpawns, on(SpawnGroup2.class).getSpawnTemplates()));
-					List<SpawnTemplate> sameIds = filter(having(on(SpawnTemplate.class).getWalkerId(), equalTo(walkerId)), allSpots);
+					List<SpawnTemplate> allSpots = new ArrayList<SpawnTemplate>();
+					for (SpawnGroup2 sg : allSpawns) {
+						allSpots.addAll(sg.getSpawnTemplates());
+					}
+					List<SpawnTemplate> sameIds = new ArrayList<SpawnTemplate>();
+					for (SpawnTemplate st : allSpots) {
+						if (walkerId.equals(st.getWalkerId())) {
+							sameIds.add(st);
+						}
+					}
 					if (sameIds.size() >= template.getPool()) {
 						PacketSendUtility.sendMessage(admin, "Can not assign, walker pool reached the limit.");
 						return;

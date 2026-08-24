@@ -83,7 +83,7 @@ public class DredgionService2 {
 		}, DredgionConfig.DREDGION_TIMER * 60 * 1000);
 	}
 
-	private void startDredgionRegistration() {
+	public void startDredgionRegistration() {
 		registerAvailable = true;
 		startUregisterDredgionTask();
 		Iterator<Player> iter = World.getInstance().getPlayersIterator();

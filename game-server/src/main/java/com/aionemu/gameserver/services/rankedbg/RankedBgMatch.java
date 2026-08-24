@@ -35,16 +35,22 @@ public class RankedBgMatch {
 	private final int format;
 	private final List<Player> teamA;
 	private final List<Player> teamB;
+	private final boolean classDuel;
 	private final Map<Integer, OriginalLoc> origins = new HashMap<Integer, OriginalLoc>();
 	private final float[] teamASpawn;
 	private final float[] teamBSpawn;
 
 	public RankedBgMatch(int instanceId, int mapId, int format, List<Player> teamA, List<Player> teamB) {
+		this(instanceId, mapId, format, teamA, teamB, false);
+	}
+
+	public RankedBgMatch(int instanceId, int mapId, int format, List<Player> teamA, List<Player> teamB, boolean classDuel) {
 		this.instanceId = instanceId;
 		this.mapId = mapId;
 		this.format = format;
 		this.teamA = teamA;
 		this.teamB = teamB;
+		this.classDuel = classDuel;
 		int stage = Rnd.get(STAGES.length);
 		this.teamASpawn = STAGES[stage][0];
 		this.teamBSpawn = STAGES[stage][1];
@@ -80,6 +86,11 @@ public class RankedBgMatch {
 
 	public int getFormat() {
 		return format;
+	}
+
+	/** True when this match is a same-class 1v1 duel (separate rating track). */
+	public boolean isClassDuel() {
+		return classDuel;
 	}
 
 	public List<Player> getTeamA() {

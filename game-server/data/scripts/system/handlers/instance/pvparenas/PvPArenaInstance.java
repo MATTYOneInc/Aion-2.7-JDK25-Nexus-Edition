@@ -16,9 +16,7 @@
  */
 package instance.pvparenas;
 
-import static ch.lambdaj.Lambda.on;
-import static ch.lambdaj.Lambda.sort;
-
+import java.util.Comparator;
 import java.util.List;
 
 import org.slf4j.Logger;
@@ -466,7 +464,7 @@ public class PvPArenaInstance extends GeneralInstanceHandler {
 		int itemId = getIdEnteringItem();
 
 		List<Item> items = player.getInventory().getItemsByItemId(itemId);
-		items = sort(items, on(Item.class).getExpireTime());
+		items.sort(Comparator.comparingInt(Item::getExpireTime));
 		for (Item item : items) {
 			ticketRemoved.put(player.getObjectId(), 1);
 			player.getInventory().decreaseItemCount(item, size);

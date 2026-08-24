@@ -16,9 +16,7 @@
  */
 package com.aionemu.gameserver.model.autogroup;
 
-import static org.hamcrest.Matchers.*;
-import static ch.lambdaj.Lambda.*;
-
+import com.aionemu.gameserver.configs.main.DredgionConfig;
 import com.aionemu.gameserver.configs.main.PvPConfig;
 import com.aionemu.gameserver.model.PlayerClass;
 import com.aionemu.gameserver.model.Race;
@@ -27,6 +25,7 @@ import com.aionemu.gameserver.model.instance.instancereward.InstanceReward;
 import com.aionemu.gameserver.model.team2.group.PlayerGroup;
 import com.aionemu.gameserver.model.team2.group.PlayerGroupService;
 import com.aionemu.gameserver.world.WorldMapInstance;
+import java.util.ArrayList;
 import java.util.List;
 import javolution.util.FastList;
 
@@ -90,11 +89,23 @@ public class AutoInstance {
 	}
 
 	private List<Player> getPlayersInsideByRace(Race race) {
-		return select(playersInside, having(on(Player.class).getRace(), equalTo(race)));
+		List<Player> result = new ArrayList<Player>();
+		for (Player p : playersInside) {
+			if (p.getRace() == race) {
+				result.add(p);
+			}
+		}
+		return result;
 	}
 
 	private List<Player> getPlayersByRace(Race race) {
-		return select(players, having(on(Player.class).getRace(), equalTo(race)));
+		List<Player> result = new ArrayList<Player>();
+		for (Player p : players) {
+			if (p.getRace() == race) {
+				result.add(p);
+			}
+		}
+		return result;
 	}
 
 	public FastList<Player> getPlayersInside() {
@@ -148,7 +159,7 @@ public class AutoInstance {
 
 	public boolean canAddPlayer(Player player) {
 		if (agt.isDredgion()) {
-			if (getPlayersByRace(player.getRace()).size() >= 6) {
+			if (getPlayersByRace(player.getRace()).size() >= DredgionConfig.DREDGION_MAX_TEAM_SIZE) {
 				return false;
 			}
 		}
@@ -233,6 +244,28 @@ public class AutoInstance {
 
 	public boolean hasSizePermit() {
 		return agt.getPlayerSize() == getPlayerSize();
+	}
+
+	public boolean isDredgionReady() {
+		int asmodians = 0;
+		int elyos = 0;
+		for (Player p : players) {
+			if (p.getRace() == Race.ASMODIANS) {
+				asmodians++;
+			}
+			else if (p.getRace() == Race.ELYOS) {
+				elyos++;
+			}
+		}
+		int min = DredgionConfig.DREDGION_MIN_TEAM_SIZE;
+		if (min < 1) {
+			min = 1;
+		}
+		return asmodians >= min && elyos >= min;
+	}
+
+	public boolean isReadyToStart() {
+		return agt.isDredgion() ? isDredgionReady() : hasSizePermit();
 	}
 
 	public boolean isDredgion() {

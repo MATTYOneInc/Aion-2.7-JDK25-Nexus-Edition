@@ -54,6 +54,7 @@ public class CommandService {
 		commands.put("channel", new CmdChannel());
 		commands.put("clear", new CmdClear());
 		commands.put("configure", new CmdConfigure());
+		commands.put("dredgion", new CmdDredgion());
 		commands.put("cooldown", new CmdCooldown());
 		commands.put("cometome", new CmdCometome());
 		commands.put("delete", new CmdDelete());
@@ -176,6 +177,7 @@ public class CommandService {
 //		commands.put("Tvt2", new CmdTvt2());
 		commands.put("find", new CmdFind());
 		commands.put("rankedbg", new CmdRankedBg());
+		commands.put("classbg", new CmdClassBg());
 		
 		//EventEngine
 		

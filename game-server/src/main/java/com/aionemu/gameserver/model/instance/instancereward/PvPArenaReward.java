@@ -16,7 +16,6 @@
  */
 package com.aionemu.gameserver.model.instance.instancereward;
 
-import static ch.lambdaj.Lambda.*;
 import com.aionemu.commons.utils.Rnd;
 import com.aionemu.gameserver.model.gameobjects.player.Player;
 import com.aionemu.gameserver.model.instance.instanceposition.ChaosInstancePosition;
@@ -148,14 +147,27 @@ public class PvPArenaReward extends InstanceReward<PvPArenaPlayerReward> {
 	}
 
 	public List<PvPArenaPlayerReward> sortPoints() {
-		return sort(getInstanceRewards(), on(PvPArenaPlayerReward.class).getScorePoints(), new Comparator<Integer>() {
+		List<PvPArenaPlayerReward> sorted = new ArrayList<PvPArenaPlayerReward>(getInstanceRewards());
+		sorted.sort(new Comparator<PvPArenaPlayerReward>() {
 
 			@Override
-			public int compare(Integer o1, Integer o2) {
-				return o2 != null ? o2.compareTo(o1) : -o1.compareTo(o2);
+			public int compare(PvPArenaPlayerReward o1, PvPArenaPlayerReward o2) {
+				Integer p1 = o1.getScorePoints();
+				Integer p2 = o2.getScorePoints();
+				if (p1 == null && p2 == null) {
+					return 0;
+				}
+				if (p1 == null) {
+					return 1;
+				}
+				if (p2 == null) {
+					return -1;
+				}
+				return p2.compareTo(p1);
 			}
 
 		});
+		return sorted;
 	}
 
 	public int getRank(int points) {
@@ -169,14 +181,29 @@ public class PvPArenaReward extends InstanceReward<PvPArenaPlayerReward> {
 	}
 
 	public boolean hasCapPoints() {
-		if (isSoloArena()
-				&& (maxFrom(getInstanceRewards()).getPoints() - minFrom(getInstanceRewards()).getPoints() >= 1500))
+		int max = Integer.MIN_VALUE;
+		int min = Integer.MAX_VALUE;
+		for (PvPArenaPlayerReward reward : getInstanceRewards()) {
+			int points = reward.getPoints();
+			if (points > max) {
+				max = points;
+			}
+			if (points < min) {
+				min = points;
+			}
+		}
+		if (isSoloArena() && (max - min >= 1500)) {
 			return true;
-		return maxFrom(getInstanceRewards()).getPoints() >= capPoints;
+		}
+		return max >= capPoints;
 	}
 
 	public int getTotalPoints() {
-		return sum(getInstanceRewards(), on(PvPArenaPlayerReward.class).getScorePoints());
+		int total = 0;
+		for (PvPArenaPlayerReward reward : getInstanceRewards()) {
+			total += reward.getScorePoints();
+		}
+		return total;
 	}
 
 	public boolean canRewarded() {

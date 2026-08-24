@@ -31,6 +31,7 @@ public class HaramelInstance extends GeneralInstanceHandler {
 
 	@Override
 	public void onDie(Npc npc) {
+		super.onDie(npc);
 		Player player = npc.getAggroList().getMostPlayerDamage();
 		if (player == null) {
 			return;

@@ -104,6 +104,7 @@ public class TalocsHollowInstance extends GeneralInstanceHandler {
 
 	@Override
 	public void onDie(Npc npc) {
+		super.onDie(npc);
 		switch (npc.getNpcId()) {
 			case 215467:
 				openDoor(48);

@@ -294,8 +294,8 @@ public class RankedBgInstance extends GeneralInstanceHandler {
 		int winnerTeam = scoreA == scoreB ? -1 : (scoreA > scoreB ? RankedBgMatch.TEAM_ELYOS : RankedBgMatch.TEAM_ASMODIANS);
 		instanceReward.setWinnerTeam(winnerTeam);
 
-		int avgA = averageRating(match.getTeamA(), match.getFormat());
-		int avgB = averageRating(match.getTeamB(), match.getFormat());
+		int avgA = averageRating(match.getTeamA());
+		int avgB = averageRating(match.getTeamB());
 
 		for (com.aionemu.gameserver.model.instance.playerreward.InstancePlayerReward pr : instanceReward.getInstanceRewards()) {
 			RankedBgPlayerReward r = (RankedBgPlayerReward) pr;
@@ -307,7 +307,7 @@ public class RankedBgInstance extends GeneralInstanceHandler {
 			boolean won = teamId == winnerTeam;
 			int oppAvg = teamId == RankedBgMatch.TEAM_ELYOS ? avgB : avgA;
 
-			int before = RankedBattlegroundService.getInstance().loadRating(p.getObjectId(), match.getFormat());
+			int before = loadRating(p);
 			int after = com.aionemu.gameserver.model.rankedbg.Elo.compute(before, oppAvg, won,
 				com.aionemu.gameserver.configs.main.RankedBgConfig.ELO_K);
 			r.setRatingBefore(before);
@@ -315,18 +315,34 @@ public class RankedBgInstance extends GeneralInstanceHandler {
 			r.setRatingDelta(after - before);
 			r.setWinner(won);
 
-			com.aionemu.gameserver.model.rankedbg.RankedBgRating rating = RankedBattlegroundService.getInstance()
-				.loadOrCreate(p.getObjectId(), match.getFormat());
-			rating.setRating(after);
-			if (won) {
-				rating.setWins(rating.getWins() + 1);
-				rating.setPoints(rating.getPoints() + com.aionemu.gameserver.configs.main.RankedBgConfig.SEASON_WIN);
+			if (match.isClassDuel()) {
+				com.aionemu.gameserver.model.rankedbg.RankedBgClassRating rating = RankedBattlegroundService.getInstance()
+					.loadOrCreateClass(p.getObjectId());
+				rating.setRating(after);
+				if (won) {
+					rating.setWins(rating.getWins() + 1);
+					rating.setPoints(rating.getPoints() + com.aionemu.gameserver.configs.main.RankedBgConfig.SEASON_WIN);
+				}
+				else {
+					rating.setLosses(rating.getLosses() + 1);
+					rating.setPoints(rating.getPoints() + com.aionemu.gameserver.configs.main.RankedBgConfig.SEASON_LOSE);
+				}
+				RankedBattlegroundService.getInstance().saveClassRating(rating);
 			}
 			else {
-				rating.setLosses(rating.getLosses() + 1);
-				rating.setPoints(rating.getPoints() + com.aionemu.gameserver.configs.main.RankedBgConfig.SEASON_LOSE);
+				com.aionemu.gameserver.model.rankedbg.RankedBgRating rating = RankedBattlegroundService.getInstance()
+					.loadOrCreate(p.getObjectId(), match.getFormat());
+				rating.setRating(after);
+				if (won) {
+					rating.setWins(rating.getWins() + 1);
+					rating.setPoints(rating.getPoints() + com.aionemu.gameserver.configs.main.RankedBgConfig.SEASON_WIN);
+				}
+				else {
+					rating.setLosses(rating.getLosses() + 1);
+					rating.setPoints(rating.getPoints() + com.aionemu.gameserver.configs.main.RankedBgConfig.SEASON_LOSE);
+				}
+				RankedBattlegroundService.getInstance().saveRating(rating);
 			}
-			RankedBattlegroundService.getInstance().saveRating(rating);
 
 			int ap = won ? com.aionemu.gameserver.configs.main.RankedBgConfig.AP_WIN
 				: com.aionemu.gameserver.configs.main.RankedBgConfig.AP_LOSE;
@@ -374,16 +390,23 @@ public class RankedBgInstance extends GeneralInstanceHandler {
 		}
 	}
 
-	private int averageRating(List<Player> team, int format) {
+	private int averageRating(List<Player> team) {
 		int sum = 0;
 		int n = 0;
 		for (Player p : team) {
 			if (p != null) {
-				sum += RankedBattlegroundService.getInstance().loadRating(p.getObjectId(), format);
+				sum += loadRating(p);
 				n++;
 			}
 		}
 		return n == 0 ? com.aionemu.gameserver.configs.main.RankedBgConfig.DEFAULT_RATING : sum / n;
+	}
+
+	private int loadRating(Player p) {
+		if (match != null && match.isClassDuel()) {
+			return RankedBattlegroundService.getInstance().loadClassRating(p.getObjectId());
+		}
+		return RankedBattlegroundService.getInstance().loadRating(p.getObjectId(), match.getFormat());
 	}
 
 	@Override

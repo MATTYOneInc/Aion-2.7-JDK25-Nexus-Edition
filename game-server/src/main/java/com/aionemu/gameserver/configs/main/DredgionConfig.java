@@ -31,4 +31,10 @@ public class DredgionConfig {
 
 	@Property(key = "gameserver.dredgion.time", defaultValue = "0 0 0,12,20 ? * *")
 	public static String DREDGION_TIMES;
+
+	@Property(key = "gameserver.dredgion.min.team.size", defaultValue = "1")
+	public static int DREDGION_MIN_TEAM_SIZE;
+
+	@Property(key = "gameserver.dredgion.max.team.size", defaultValue = "6")
+	public static int DREDGION_MAX_TEAM_SIZE;
 }
