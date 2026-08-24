@@ -4,7 +4,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.aionemu.chatserver.configs.Config;
+import com.aionemu.chatserver.database.ChatLogDatabaseFactory;
 import com.aionemu.chatserver.network.netty.NettyServer;
+import com.aionemu.chatserver.service.ChatLogService;
 
 public final class ChatServer {
 
@@ -22,6 +24,10 @@ public final class ChatServer {
 			log.info("Loading configuration...");
 			Config.load();
 			log.info("Configuration loaded successfully.");
+
+			if (Config.LOGDB_ENABLED) {
+				ChatLogDatabaseFactory.init();
+			}
 
 			log.info("Starting Netty Server...");
 			new NettyServer();
@@ -43,7 +49,12 @@ public final class ChatServer {
             log.info("                 Aion 2.7 - Java 25 Edition                            ");
             log.info("           [ Modernized and Modified by Nexus Connect  ]                   ");
             log.info("                    [ weplaynexus.com  ]                                ");
-            log.info("=======================================================================");
+			log.info("=======================================================================");
+
+			Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+				ChatLogService.getInstance().shutdown();
+				ChatLogDatabaseFactory.shutdown();
+			}));
 		} catch (Throwable t) {
 			log.error("Failed to start Chat Server.", t);
 			System.exit(1);

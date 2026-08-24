@@ -23,6 +23,18 @@ public final class Config {
 	@Property(key = "chatserver.network.gameserver.password", defaultValue = "*")
 	public static String GAME_SERVER_PASSWORD;
 
+	@Property(key = "chatserver.logdb.enabled", defaultValue = "false")
+	public static boolean LOGDB_ENABLED;
+
+	@Property(key = "chatserver.logdb.url", defaultValue = "jdbc:mysql://localhost:3306/aion2_chat")
+	public static String LOGDB_URL;
+
+	@Property(key = "chatserver.logdb.user", defaultValue = "root")
+	public static String LOGDB_USER;
+
+	@Property(key = "chatserver.logdb.password", defaultValue = "root")
+	public static String LOGDB_PASSWORD;
+
 	private Config() {
 	}
 

@@ -28,6 +28,7 @@ import com.aionemu.chatserver.model.message.Message;
 import com.aionemu.chatserver.network.aion.AbstractClientPacket;
 import com.aionemu.chatserver.network.netty.handler.ClientChannelHandler;
 import com.aionemu.chatserver.service.BroadcastService;
+import com.aionemu.chatserver.service.ChatLogService;
 
 /**
  * 
@@ -65,6 +66,7 @@ public class CM_CHANNEL_MESSAGE extends AbstractClientPacket {
 	protected void runImpl() {
 		Channel channel = Channels.getChannelById(channelId);
 		Message message = new Message(channel, content, clientChannelHandler.getChatClient());
+		ChatLogService.getInstance().logMessage(message);
 		BroadcastService.getInstance().broadcastMessage(message);
 	}
 

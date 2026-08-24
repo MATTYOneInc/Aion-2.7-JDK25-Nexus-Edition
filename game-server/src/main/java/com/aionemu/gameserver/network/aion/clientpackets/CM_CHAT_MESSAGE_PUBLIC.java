@@ -26,6 +26,7 @@ import com.aionemu.gameserver.network.aion.AionClientPacket;
 import com.aionemu.gameserver.network.aion.AionConnection.State;
 import com.aionemu.gameserver.network.aion.serverpackets.SM_MESSAGE;
 import com.aionemu.gameserver.restrictions.RestrictionsManager;
+import com.aionemu.gameserver.services.ChatLogService;
 import com.aionemu.gameserver.services.player.PlayerChatService;
 import com.aionemu.gameserver.utils.PacketSendUtility;
 import com.aionemu.gameserver.utils.audit.AuditLogger;
@@ -74,6 +75,8 @@ public class CM_CHAT_MESSAGE_PUBLIC extends AionClientPacket {
 
 		if (LoggingConfig.LOG_CHAT)
 			PlayerChatService.chatLogging(player, type, message);
+
+		ChatLogService.getInstance().log(player, type, message);
 
 		if (RestrictionsManager.canChat(player) && !PlayerChatService.isFlooding(player)) {
 			switch (this.type) {
